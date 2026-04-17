@@ -2,17 +2,16 @@ import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { ProviderID, ModelID } from "../../provider/schema"
-import { ToolRegistry } from "../../tool/registry"
+import { ToolRegistry } from "../../tool"
 import { Worktree } from "../../worktree"
 import { Instance } from "../../project/instance"
-import { Project } from "../../project/project"
+import { Project } from "../../project"
 import { MCP } from "../../mcp"
 import { Session } from "../../session"
-import { Config } from "../../config/config"
+import { Config } from "../../config"
 import { ConsoleState } from "../../config/console-state"
 import { Account, AccountID, OrgID } from "../../account"
 import { AppRuntime } from "../../effect/app-runtime"
-import { zodToJsonSchema } from "zod-to-json-schema"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Effect, Option } from "effect"
@@ -226,8 +225,7 @@ export const ExperimentalRoutes = lazy(() =>
           tools.map((t) => ({
             id: t.id,
             description: t.description,
-            // Handle both Zod schemas and plain JSON schemas
-            parameters: (t.parameters as any)?._def ? zodToJsonSchema(t.parameters as any) : t.parameters,
+            parameters: z.toJSONSchema(t.parameters),
           })),
         )
       },
@@ -254,7 +252,7 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.CreateInput.optional()),
       async (c) => {
         const body = c.req.valid("json")
-        const worktree = await Worktree.create(body)
+        const worktree = await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.create(body)))
         return c.json(worktree)
       },
     )
@@ -276,7 +274,7 @@ export const ExperimentalRoutes = lazy(() =>
         },
       }),
       async (c) => {
-        const sandboxes = await Project.sandboxes(Instance.project.id)
+        const sandboxes = await AppRuntime.runPromise(Project.Service.use((svc) => svc.sandboxes(Instance.project.id)))
         return c.json(sandboxes)
       },
     )
@@ -301,8 +299,10 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.RemoveInput),
       async (c) => {
         const body = c.req.valid("json")
-        await Worktree.remove(body)
-        await Project.removeSandbox(Instance.project.id, body.directory)
+        await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.remove(body)))
+        await AppRuntime.runPromise(
+          Project.Service.use((svc) => svc.removeSandbox(Instance.project.id, body.directory)),
+        )
         return c.json(true)
       },
     )
@@ -327,7 +327,7 @@ export const ExperimentalRoutes = lazy(() =>
       validator("json", Worktree.ResetInput),
       async (c) => {
         const body = c.req.valid("json")
-        await Worktree.reset(body)
+        await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.reset(body)))
         return c.json(true)
       },
     )
